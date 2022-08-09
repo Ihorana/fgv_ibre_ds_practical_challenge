@@ -1,0 +1,114 @@
+---
+title: "Análise de modelos para Previsão da inflação no Brasil"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+date: "09/08/2022"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+### Carregando as bibliotecas 
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+library(readxl)
+library(tidyverse)
+library(forecast)
+library(mFilter)
+library(forecastHybrid)
+library(stargazer)
+library(xtable)
+library(tidytext)
+library(esquisse)
+library(ggplot2)
+```
+
+### Definindo diretório
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+library(readxl)
+setwd("~/Documents/fgv_nova")
+indices = read_excel("indices_final.xlsx", col_names=TRUE)
+```
+
+### Análise de sazonalidade
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+ggplot(indices) +
+ aes(x = data, y = ipca_var) +
+ geom_line(size = 0.5, colour = "#112446") +
+ labs(title = "Variação mensal do IPCA", 
+ subtitle = "(2000 a 2022)") +
+ theme_minimal() +
+ theme(plot.title = element_text(size = 15L, face = "bold", 
+ hjust = 0.5), plot.subtitle = element_text(size = 10L, hjust = 0.5))
+```
+
+### Autocorrelação
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+ggtsdisplay(indices$ipca_var)
+```
+
+### Ajuste do modelo
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+inflacao_mensal = ts(indices$ipca_var, start=c(1996,06), freq=12)
+auto <- auto.arima(inflacao_mensal, max.p=5, max.q=5, max.P=5, max.Q=5)
+sarima <- Arima(inflacao_mensal, order=c(1,0,0), seasonal = c(0,0,1))
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+autoplot(fitted(sarima))+
+  geom_line(size=1, aes(colour="SARIMA"))+
+  geom_line(aes(y=inflacao_mensal, colour="IPCA"))+
+  xlab("")+ylab("% a.m")+
+  labs(title = "Inflação mensal vs. Modelo SARIMA",
+       caption = "Fonte IBGE",
+       colour = "")+
+  theme(legend.position = "top")
+```
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+autoplot(resid(sarima))+
+  geom_line(size=1)+
+  xlab("")+ylab("% a.m")+
+  labs(title = "Resíduos do Modelo SARIMA",
+       caption = "Fonte IBGE")
+```
+
+### Previsões
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+level <- c(50,75,95) #intervalos de confiança
+h=6 # períodos a frente 
+
+fsarima <- forecast::forecast(sarima, h=h, level=level)
+autoplot(fsarima)+
+  xlab("")+ylab("% a.m.")+
+    labs(title = "Resíduos do Modelo SARIMA",
+       caption = "Fonte IBGE")+
+  theme(legend.position = "top")
+
+```
+
+A tabela abaixo traz as previsões para um intervalo de 50%.
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+cbind(fsarima$lower[,1], fsarima$mean, fsarima$upper[,1])
+```
+### Avaliação do modelo
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+## Normalmente, 70% da base é separa para treino, então vou considerar que, até 12/2014 será treino e de 01/2014 até 06/2022 será teste.
+data.model <- window(inflacao_mensal, end = c(2014,12)) #treino
+data.forecast <- window(inflacao_mensal, start = c(2015,01)) #teste
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+sarima_treino <- arima(data.model, order = c(1,0,0), seasonal = c(0,0,1))
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+sarima_teste <- forecast::forecast(sarima_treino, length(data.forecast), level = 95)
+```
+
+Para avaliar o quano a previsão pode estar errando, foi considerada a
+acurácia do modelo, que diz que, em média, o erro é de 0,06 para baixo.
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+accuracy <- accuracy(sarima_teste$mean, data.forecast)
+print(accuracy)
+```
